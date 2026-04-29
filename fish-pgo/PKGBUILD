@@ -17,6 +17,7 @@ depends=(
 )
 makedepends=(
     'cargo'
+    'cargo-pgo'
     'cmake'
     'rust'
 )
@@ -38,10 +39,8 @@ source=(
     "https://github.com/fish-shell/fish-shell/releases/download/${pkgver}/fish-${pkgver}.tar.xz"
     "https://raw.githubusercontent.com/eeay0/arch-pkg/refs/heads/main/fish-pgo/fish_pgo_train.sh"
 )
-sha256sums=(
-    'SKIP'   # replace with actual checksum: sha256sum fish-4.6.0.tar.xz
-    'SKIP'
-)
+sha256sums=('fc9165f733a0e28a3dba11c9b1a286bc88a853f152a6694cd993512a2f1761aa'
+            'ad7ecc0d05138383521a34f95435b57aa00eb4ec068996e5e358c17643575b2a')
 
 _srcdir="fish-${pkgver}"
 _triple=$(rustc -vV 2>/dev/null | awk '/host:/{print $2}')
@@ -73,9 +72,9 @@ EOF
 build() {
     cd "$_srcdir"
 
-    # cargo-pgo is not in pacman repos, install via cargo if missing
-    if ! cargo pgo --version &>/dev/null 2>&1; then
-        msg "Installing cargo-pgo via cargo..."
+    # Ensure cargo-pgo is installed
+    if ! command -v cargo-pgo &>/dev/null; then
+        msg "Installing cargo-pgo..."
         cargo install cargo-pgo
     fi
 
