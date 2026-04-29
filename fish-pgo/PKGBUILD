@@ -37,7 +37,7 @@ options=('!lto')   # we handle LTO ourselves via Cargo
 
 source=(
     "https://github.com/fish-shell/fish-shell/releases/download/${pkgver}/fish-${pkgver}.tar.xz"
-    "https://github.com/eeay0/arch-pkg/blob/main/fish-pgo/fish_pgo_train.sh"
+    "https://raw.githubusercontent.com/eeay0/arch-pkg/refs/heads/main/fish-pgo/fish_pgo_train.sh"
 )
 sha256sums=('fc9165f733a0e28a3dba11c9b1a286bc88a853f152a6694cd993512a2f1761aa'
             'ad7ecc0d05138383521a34f95435b57aa00eb4ec068996e5e358c17643575b2a')
