@@ -1,0 +1,135 @@
+# Maintainer: Enes <your@email.com>
+# Based on the official Arch Linux fish package
+# Builds fish with PGO (Profile-Guided Optimization) + LTO + native CPU tuning
+
+pkgname=fish-pgo
+pkgver=4.6.0
+pkgrel=1
+pkgdesc="Smart and user friendly shell (PGO + LTO + native CPU optimized build)"
+arch=('x86_64')
+url="https://fishshell.com"
+license=('GPL-2.0-or-later')
+depends=(
+    'glibc'
+    'gcc-libs'
+    'ncurses'
+    'pcre2'
+)
+makedepends=(
+    'cargo'
+    'cargo-pgo'
+    'cmake'
+    'rust'
+)
+optdepends=(
+    'python: man page completion parser / web config tool'
+    'pkgfile: command-not-found hook'
+    'nroff: --help for built-in commands'
+    'mandoc: --help for built-in commands (alternative)'
+    'xsel: X11 clipboard integration'
+    'xclip: X11 clipboard integration (alternative)'
+    'wl-clipboard: Wayland clipboard integration'
+)
+provides=('fish')
+conflicts=('fish')
+install=fish-pgo.install
+options=('!lto')   # we handle LTO ourselves via Cargo
+
+source=(
+    "https://github.com/fish-shell/fish-shell/releases/download/${pkgver}/fish-${pkgver}.tar.xz"
+    "fish_pgo_train.sh::https://raw.githubusercontent.com/enes/myrepo/main/fish-pgo/fish_pgo_train.sh"
+)
+sha256sums=(
+    'SKIP'   # replace with actual checksum: sha256sum fish-4.6.0.tar.xz
+    'SKIP'
+)
+
+_srcdir="fish-${pkgver}"
+_triple=$(rustc -vV 2>/dev/null | awk '/host:/{print $2}')
+
+prepare() {
+    cd "$_srcdir"
+
+    # ── Write .cargo/config.toml ──────────────────────────────────────────────
+    mkdir -p .cargo
+    cat > .cargo/config.toml << 'EOF'
+[build]
+rustflags = ["-C", "target-cpu=native"]
+
+[profile.release]
+lto           = "fat"
+codegen-units = 1
+opt-level     = 3
+panic         = "abort"
+strip         = "symbols"
+
+# Used by cargo-pgo during instrumentation phase — LTO must be off here
+[profile.pgo]
+inherits      = "release"
+lto           = false
+codegen-units = 16
+EOF
+}
+
+build() {
+    cd "$_srcdir"
+
+    # Ensure cargo-pgo is installed
+    if ! command -v cargo-pgo &>/dev/null; then
+        msg "Installing cargo-pgo..."
+        cargo install cargo-pgo
+    fi
+
+    # ── Phase 1: Build instrumented binary ────────────────────────────────────
+    msg "Building PGO instrumented binary..."
+    cargo pgo build
+
+    # ── Phase 2: Training workload ────────────────────────────────────────────
+    msg "Running PGO training workload..."
+    chmod +x "$srcdir/fish_pgo_train.sh"
+    "$srcdir/fish_pgo_train.sh" "$srcdir/$_srcdir/target/${_triple}/release/fish"
+
+    # ── Phase 3: Optimized build ──────────────────────────────────────────────
+    msg "Building PGO optimized binary..."
+    cargo pgo optimize
+}
+
+package() {
+    cd "$_srcdir"
+
+    local _bindir="target/${_triple}/release"
+
+    # ── Binaries ──────────────────────────────────────────────────────────────
+    install -Dm755 "$_bindir/fish"            "$pkgdir/usr/bin/fish"
+    install -Dm755 "$_bindir/fish_indent"     "$pkgdir/usr/bin/fish_indent"
+    install -Dm755 "$_bindir/fish_key_reader" "$pkgdir/usr/bin/fish_key_reader"
+
+    # ── Functions ─────────────────────────────────────────────────────────────
+    install -dm755 "$pkgdir/usr/share/fish"
+    cp -r share/functions  "$pkgdir/usr/share/fish/"
+    cp -r share/completions "$pkgdir/usr/share/fish/"
+
+    # ── Vendor dirs (used by other packages to inject into fish) ──────────────
+    for dir in vendor_conf.d vendor_functions.d vendor_completions.d; do
+        if [[ -d "share/$dir" ]]; then
+            install -dm755 "$pkgdir/usr/share/fish/$dir"
+            cp -r "share/$dir/." "$pkgdir/usr/share/fish/$dir/"
+        fi
+    done
+
+    # ── Config snippets ───────────────────────────────────────────────────────
+    if [[ -d share/config.d ]]; then
+        install -dm755 "$pkgdir/usr/share/fish/config.d"
+        cp -r share/config.d/. "$pkgdir/usr/share/fish/config.d/"
+    fi
+
+    # ── Man pages ─────────────────────────────────────────────────────────────
+    if compgen -G "share/man/man1/*.1" &>/dev/null; then
+        install -dm755 "$pkgdir/usr/share/man/man1"
+        install -Dm644 share/man/man1/*.1 "$pkgdir/usr/share/man/man1/"
+    fi
+
+    # ── Register as a valid login shell ──────────────────────────────────────
+    # /etc/shells is managed by pacman's install scriptlet
+    # Create a .install file for this — see fish-pgo.install
+}
